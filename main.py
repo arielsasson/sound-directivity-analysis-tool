@@ -24,7 +24,7 @@ def main():
     # Set application properties
     app.setApplicationName("Análisis de Directividad")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("Audio Analysis Team")
+    app.setOrganizationName("UNTreF")
     
     # Create and show main window
     window = MainWindow()
