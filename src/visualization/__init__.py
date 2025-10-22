@@ -11,7 +11,7 @@ from vedo import show, Grid, Mesh, Text3D, Line, Axes
 from matplotlib.figure import Figure
 import seaborn as sns
 
-from ..config import (
+from config import (
     BALLOON_PLOT_COLOR,
     REFERENCE_LINE_COLOR,
     REFERENCE_LINE_WIDTH,

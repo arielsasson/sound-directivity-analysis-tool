@@ -15,7 +15,7 @@ from vedo import Plotter
 
 from .widgets import ControlPanel, GraphContainer, VTKWidget, PolarPlotWidget
 from .handlers import EventHandlers
-from ..config import WINDOW_SIZE, GRAPH_CONTAINER_SIZE, TOP_GRAPH_SIZE, BOTTOM_GRAPH_SIZE
+from config import WINDOW_SIZE, GRAPH_CONTAINER_SIZE, TOP_GRAPH_SIZE, BOTTOM_GRAPH_SIZE
 
 
 class MainWindow(QMainWindow):

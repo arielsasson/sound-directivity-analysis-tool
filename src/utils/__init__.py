@@ -7,17 +7,16 @@ function for processing balloon measurements.
 
 import os
 import pandas as pd
-import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Callable
 from PyQt5.QtWidgets import QProgressBar
 
-from ..audio.processing import (
+from audio.processing import (
     calculate_calibration_offset,
     calculate_recording_spl,
     get_third_octave_edges,
     get_octave_edges
 )
-from ..config import (
+from config import (
     FREQUENCY_BANDS,
     CALIBRATION_FREQUENCY_LOWCUT,
     CALIBRATION_FREQUENCY_HIGHCUT

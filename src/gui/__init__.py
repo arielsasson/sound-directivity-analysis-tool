@@ -14,7 +14,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import seaborn as sns
 
-from ..config import (
+from config import (
     SIDEBAR_WIDTH,
     TOP_GRAPH_SIZE,
     BOTTOM_GRAPH_SIZE,

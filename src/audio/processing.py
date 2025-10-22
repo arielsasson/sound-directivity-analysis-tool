@@ -11,7 +11,7 @@ import math
 from scipy.signal import butter, sosfilt
 from typing import Optional, Tuple
 
-from ..config import (
+from config import (
     CALIBRATION_FREQUENCY_LOWCUT,
     CALIBRATION_FREQUENCY_HIGHCUT,
     CALIBRATION_SPL_LEVEL

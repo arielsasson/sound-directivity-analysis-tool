@@ -14,10 +14,10 @@ from PyQt5.QtCore import Qt
 if TYPE_CHECKING:
     from .main_window import MainWindow
 
-from ..utils.data_generation import generate_balloon_data
-from ..data.processing import energy_std_spl, redundancy_average_spl, normalize_by_90deg
-from ..visualization.plots import create_balloon_plot, create_polar_plot
-from ..config import (
+from utils.data_generation import generate_balloon_data
+from data.processing import energy_std_spl, redundancy_average_spl, normalize_by_90deg
+from visualization.plots import create_balloon_plot, create_polar_plot
+from config import (
     ELEVATION_RANGE, AZIMUTH_RANGE, MIN_ELEVATION_STEP, MAX_ELEVATION_STEP,
     MIN_AZIMUTH_STEP, MAX_AZIMUTH_STEP, REQUIRED_ELEVATION_REFERENCE,
     REQUIRED_AZIMUTH_REFERENCES
