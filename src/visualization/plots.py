@@ -60,6 +60,7 @@ def create_surface_mesh(df: pd.DataFrame, spl_column: str, normalized: bool = Fa
     min_spl = spl_values.min()
     max_spl = spl_values.max()
     
+    
     if normalized:
         # For normalized data: 0 dB should be farthest, negative values closer to center
         # Map values to distance range [distance_scale_factor, 50]

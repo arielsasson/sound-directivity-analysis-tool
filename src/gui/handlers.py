@@ -180,17 +180,20 @@ class EventHandlers:
         # Step 1: Normalize data using 90-degree reference
         df_norm_temp = normalize_by_90deg(self.main_window.df_clean, df_90)
         
-        # Step 2: Apply additional normalization - make highest value 0 dB
-        spl_cols = [col for col in df_norm_temp.columns if col not in ["azim", "elev"]]
+        # Step 2: Apply canonical conversion to normalized data
+        df_norm_canonical = apply_canonical_conversion(df_norm_temp)
+        
+        # Step 3: Apply additional normalization - make highest value 0 dB (after canonical conversion)
+        spl_cols = [col for col in df_norm_canonical.columns if col not in ["azim", "elev"]]
         max_values = {}
         for col in spl_cols:
-            max_values[col] = df_norm_temp[col].max()
+            max_values[col] = df_norm_canonical[col].max()
         
         # Make highest value 0 dB by subtracting max from each value
         for col in spl_cols:
-            df_norm_temp[col] = df_norm_temp[col] - max_values[col]
+            df_norm_canonical[col] = df_norm_canonical[col] - max_values[col]
         
-        self.main_window.df_norm = df_norm_temp
+        self.main_window.df_norm = df_norm_canonical
     
     def plot_data(self, frequency: str):
         """Plot all visualizations for the given frequency."""
@@ -207,7 +210,8 @@ class EventHandlers:
         
         # Apply canonical conversion only for balloon plots
         df_clean_canonical = apply_canonical_conversion(self.main_window.df_clean)
-        df_norm_canonical = apply_canonical_conversion(self.main_window.df_norm)
+        # df_norm_canonical is already canonical from cleanup_data
+        df_norm_canonical = self.main_window.df_norm
         
         
         # Create balloon plots using canonical data
