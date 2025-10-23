@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from vedo import Plotter
 
-from .widgets import ControlPanel, GraphContainer, VTKWidget, PolarPlotWidget
+from .widgets import ControlPanel, GraphContainer, SimpleGraphContainer, VTKWidget, PolarPlotWidget
 from .handlers import EventHandlers
 from config import WINDOW_SIZE, GRAPH_CONTAINER_SIZE, TOP_GRAPH_SIZE, BOTTOM_GRAPH_SIZE
 
@@ -92,9 +92,9 @@ class MainWindow(QMainWindow):
         self.bottom_layout.setContentsMargins(0, 0, 0, 0)
         self.bottom_layout.setSpacing(0)
         
-        self.bottom_left = GraphContainer("Vista superior", *BOTTOM_GRAPH_SIZE, "lightgreen")
-        self.bottom_center = GraphContainer("Vista frontal", *BOTTOM_GRAPH_SIZE, "lightgreen")
-        self.bottom_right = GraphContainer("Vista sagital", *BOTTOM_GRAPH_SIZE, "lightgreen")
+        self.bottom_left = SimpleGraphContainer("Vista superior", *BOTTOM_GRAPH_SIZE, "lightgreen")
+        self.bottom_center = SimpleGraphContainer("Vista frontal", *BOTTOM_GRAPH_SIZE, "lightgreen")
+        self.bottom_right = SimpleGraphContainer("Vista sagital", *BOTTOM_GRAPH_SIZE, "lightgreen")
         
         self.bottom_layout.addWidget(self.bottom_left)
         self.bottom_layout.addWidget(self.bottom_center)

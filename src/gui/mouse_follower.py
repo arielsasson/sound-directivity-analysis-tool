@@ -16,7 +16,7 @@ class MouseFollower(QObject):
     
     # Signals for updating the UI
     values_updated = pyqtSignal(float, float, float, float, float)  # azim, elev, spl, azim_diff, spl_diff
-    cursor_info_updated = pyqtSignal(str)  # compact cursor info string
+    cursor_info_updated = pyqtSignal(str, str)  # (type, info) where type is "current" or "delta"
     
     def __init__(self, plotter, mesh, df, frequency_column, plot_type="SPL"):
         super().__init__()
@@ -26,8 +26,9 @@ class MouseFollower(QObject):
         self.frequency_column = frequency_column
         self.plot_type = plot_type
         
-        self.cursor = None
-        self.locked = False
+        self.red_cursor = None  # Fixed cursor (red)
+        self.brown_cursor = None  # Following cursor (brown)
+        self.red_cursor_locked = False
         self.fixed_azim = None
         self.fixed_elev = None
         self.fixed_spl = None
@@ -112,12 +113,7 @@ class MouseFollower(QObject):
     
     def on_mouse_move(self, evt):
         """Handle mouse move events."""
-        if self.locked:
-            # Only print this occasionally to avoid spam
-            if not hasattr(self, '_last_ignore_time') or time.time() - self._last_ignore_time > 2:
-                print("Mouse move ignored - cursor is locked (click to unlock)")
-                self._last_ignore_time = time.time()
-            return
+        # Always allow mouse movement - either red cursor follows or brown cursor follows
         
         now = time.time()
         if (now - self._last_move_time < self._move_interval):
@@ -133,33 +129,76 @@ class MouseFollower(QObject):
         # Snap to closest vertex
         snapped_pos, vertex_data = self._find_closest_vertex(picked)
         
-        if not self.cursor:
-            # Create cursor if it doesn't exist
-            self.cursor = Sphere(pos=snapped_pos, r=1.0, c='red', alpha=1.0)
-            self.cursor.lighting('off')  # Disable lighting for consistent color
-            self.plotter += self.cursor
-            self.locked = False
-            print(f"Red cursor created on mouse move! Cursor locked: {self.locked}")
-        else:
-            # Move existing cursor
-            self.cursor.pos(snapped_pos)
+        if not self.red_cursor:
+            # Create red cursor if it doesn't exist
+            self.red_cursor = Sphere(pos=snapped_pos, r=1.0, c='red', alpha=1.0)
+            self.red_cursor.lighting('off')
+            self.plotter += self.red_cursor
+            self.red_cursor_locked = False
+            print(f"Red cursor created on mouse move! Locked: {self.red_cursor_locked}")
+            print(f"Red cursor position: {self.red_cursor.pos()}")
+            self.plotter.render()
             
-            # Use vertex data if available, otherwise calculate from position
+            # Update current cursor info
+            if vertex_data is not None:
+                azim, elev, spl = vertex_data
+            else:
+                azim, elev, spl = self._position_to_angles_spl(snapped_pos)
+            cursor_info = f"{azim:.0f}° azim, {elev:.0f}° elev, {spl:.1f} dB"
+            self.cursor_info_updated.emit("current", cursor_info)
+            
+        elif not self.red_cursor_locked:
+            # Red cursor exists and is unlocked - move it
+            print(f"Moving unlocked red cursor to: {snapped_pos}")
+            print(f"Red cursor locked state: {self.red_cursor_locked}")
+            print(f"Red cursor current pos: {self.red_cursor.pos()}")
+            
+            # Try different approach to update cursor position
+            # Remove old cursor and create new one at new position
+            self.plotter.remove(self.red_cursor)
+            self.red_cursor = Sphere(pos=snapped_pos, r=1.0, c='red', alpha=1.0)
+            self.red_cursor.lighting('off')
+            self.plotter += self.red_cursor
+            
+            print(f"Red cursor new pos: {self.red_cursor.pos()}")
+            self.plotter.render()
+            
+            # Update current cursor info
+            if vertex_data is not None:
+                azim, elev, spl = vertex_data
+            else:
+                azim, elev, spl = self._position_to_angles_spl(snapped_pos)
+            cursor_info = f"{azim:.0f}° azim, {elev:.0f}° elev, {spl:.1f} dB"
+            self.cursor_info_updated.emit("current", cursor_info)
+            
+        elif self.red_cursor_locked and not self.brown_cursor:
+            # Red cursor is locked, create brown cursor to follow mouse
+            self.brown_cursor = Sphere(pos=snapped_pos, r=1.0, c='brown', alpha=1.0)
+            self.brown_cursor.lighting('off')
+            self.plotter += self.brown_cursor
+            print("Brown cursor created - following mouse")
+            
+        elif self.brown_cursor:
+            # Brown cursor exists - move it and calculate delta
+            self.brown_cursor.pos(snapped_pos)
+            
+            # Calculate delta values between brown cursor and locked red cursor
             if vertex_data is not None:
                 azim, elev, spl = vertex_data
             else:
                 azim, elev, spl = self._position_to_angles_spl(snapped_pos)
             
-            # Calculate differences if we have a fixed point
+            # Calculate differences with respect to locked red cursor
             azim_diff = azim - self.fixed_azim if self.fixed_azim is not None else 0.0
+            elev_diff = elev - self.fixed_elev if self.fixed_elev is not None else 0.0
             spl_diff = spl - self.fixed_spl if self.fixed_spl is not None else 0.0
             
             # Emit signal with values
             self.values_updated.emit(azim, elev, spl, azim_diff, spl_diff)
             
-            # Emit compact cursor info for plot header
-            cursor_info = f"{azim:.0f}° azim, {elev:.0f}° elev, {spl:.1f} dB"
-            self.cursor_info_updated.emit(cursor_info)
+            # Emit delta cursor info for plot header
+            delta_info = f"azim:{azim_diff:+.0f}° elev:{elev_diff:+.0f}° spl:{spl_diff:+.1f}dB"
+            self.cursor_info_updated.emit("delta", delta_info)
             
             self.plotter.render()
     
@@ -189,38 +228,41 @@ class MouseFollower(QObject):
         # Snap to closest vertex
         snapped_pos, vertex_data = self._find_closest_vertex(picked)
 
-        # Only handle locking/unlocking - cursor creation is handled in mouse move
-        print(f"Checking cursor: {self.cursor is not None}")
-        if self.cursor:
-            self.locked = not self.locked
-            print(f"Cursor lock toggled! Cursor locked: {self.locked}")
-            
-            # If locking, save the fixed values
-            if self.locked:
-                if vertex_data is not None:
-                    self.fixed_azim, self.fixed_elev, self.fixed_spl = vertex_data
-                else:
-                    self.fixed_azim, self.fixed_elev, self.fixed_spl = self._position_to_angles_spl(snapped_pos)
-                print(f"Fixed values saved: azim={self.fixed_azim}, elev={self.fixed_elev}, spl={self.fixed_spl}")
+        # Handle red cursor locking
+        if self.red_cursor and not self.red_cursor_locked:
+            # Lock the red cursor
+            self.red_cursor_locked = True
+            if vertex_data is not None:
+                self.fixed_azim, self.fixed_elev, self.fixed_spl = vertex_data
             else:
-                print("Cursor unlocked - will follow mouse movement")
+                self.fixed_azim, self.fixed_elev, self.fixed_spl = self._position_to_angles_spl(snapped_pos)
+            print(f"Red cursor locked! Fixed values: azim={self.fixed_azim:.0f}°, elev={self.fixed_elev:.0f}°, spl={self.fixed_spl:.1f}dB")
         else:
-            print("No cursor exists yet - move mouse over balloon to create cursor")
+            print("Red cursor already locked or doesn't exist")
 
         self.plotter.render()
     
     def on_right_click_press(self, evt):
         """Handle right click press events."""
-        if self.cursor:
-            self.plotter.remove(self.cursor)
-            self.cursor = None
-            self.locked = False
-            self.fixed_azim = None
-            self.fixed_elev = None
-            self.fixed_spl = None
-            # Clear cursor info
-            self.cursor_info_updated.emit("")
-            self.plotter.render()
+        # Unlock red cursor and remove brown cursor
+        if self.red_cursor_locked:
+            self.red_cursor_locked = False
+            print("Red cursor unlocked")
+        
+        if self.brown_cursor:
+            self.plotter.remove(self.brown_cursor)
+            self.brown_cursor = None
+            print("Brown cursor removed")
+            
+            # Clear delta values
+            self.cursor_info_updated.emit("delta", "--")
+        
+        # Reset fixed values
+        self.fixed_azim = None
+        self.fixed_elev = None
+        self.fixed_spl = None
+        
+        self.plotter.render()
     
     def _position_to_angles_spl(self, pos):
         """Convert 3D position to azimuth, elevation, and SPL values."""

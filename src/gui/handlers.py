@@ -251,7 +251,7 @@ class EventHandlers:
                 )
                 self.spl_mouse_follower.values_updated.connect(self.update_mouse_values)
                 self.spl_mouse_follower.cursor_info_updated.connect(
-                    lambda info: self.main_window.top_left.update_title("SPL", info)
+                    lambda info_type, info: self._update_cursor_info(self.main_window.top_left, info_type, info)
                 )
         
         elif plotter == self.main_window.plotter_norm:
@@ -269,7 +269,7 @@ class EventHandlers:
                 )
                 self.norm_mouse_follower.values_updated.connect(self.update_mouse_values)
                 self.norm_mouse_follower.cursor_info_updated.connect(
-                    lambda info: self.main_window.top_right.update_title("Normalizado", info)
+                    lambda info_type, info: self._update_cursor_info(self.main_window.top_right, info_type, info)
                 )
     
     def update_polar_plots(self, frequency: str):
@@ -291,3 +291,10 @@ class EventHandlers:
         """Update mouse interaction values - information now displayed in plot headers."""
         # Mouse interaction values are now displayed in plot headers via cursor_info_updated signal
         pass
+    
+    def _update_cursor_info(self, container, info_type, info):
+        """Update cursor information in the appropriate label."""
+        if info_type == "current":
+            container.update_current_cursor(info)
+        elif info_type == "delta":
+            container.update_delta_cursor(info)

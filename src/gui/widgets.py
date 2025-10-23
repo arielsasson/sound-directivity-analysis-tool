@@ -211,7 +211,81 @@ class GraphContainer(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Title label - store reference for dynamic updates
+        # Header with three labels
+        header_frame = QFrame()
+        header_frame.setFixedHeight(25)
+        header_frame.setStyleSheet(f"background-color: {color}; border: 1px solid gray;")
+        
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(4, 2, 4, 2)
+        header_layout.setSpacing(8)
+        
+        # Left label - current cursor info (fixed to left)
+        self.current_label = QLabel("Cursor: --")
+        self.current_label.setStyleSheet("font-weight: bold; color: red; font-size: 12px; background-color: rgba(255, 255, 255, 0.8); padding: 2px 4px; border-radius: 3px;")
+        self.current_label.setFixedWidth(250)
+        self.current_label.setAlignment(Qt.AlignLeft)
+        
+        # Center label - plot title (more space)
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setFixedWidth(80)
+        
+        # Right label - delta cursor info (fixed to right)
+        self.delta_label = QLabel("Δ --")
+        self.delta_label.setStyleSheet("font-weight: bold; color: brown; font-size: 12px; background-color: rgba(255, 255, 255, 0.8); padding: 2px 4px; border-radius: 3px;")
+        self.delta_label.setFixedWidth(250)
+        self.delta_label.setAlignment(Qt.AlignRight)
+        
+        # Add labels with proper alignment
+        header_layout.addWidget(self.current_label, 0, Qt.AlignLeft)
+        header_layout.addStretch(1)  # Add stretch to push center label
+        header_layout.addWidget(self.title_label, 0, Qt.AlignCenter)
+        header_layout.addStretch(1)  # Add stretch to push right label
+        header_layout.addWidget(self.delta_label, 0, Qt.AlignRight)
+        
+        # Canvas frame
+        self.canvas_frame = QFrame()
+        self.canvas_frame.setFixedSize(width, height - 25)
+        self.canvas_frame.setStyleSheet("background-color: white; border: 1px solid gray;")
+        
+        layout.addWidget(header_frame)
+        layout.addWidget(self.canvas_frame)
+    
+    def update_title(self, base_title: str, cursor_info: str = ""):
+        """Update the title with optional cursor information."""
+        self.title_label.setText(base_title)
+    
+    def update_current_cursor(self, cursor_info: str):
+        """Update the current cursor information."""
+        self.current_label.setText(f"Cursor: {cursor_info}")
+    
+    def update_delta_cursor(self, delta_info: str):
+        """Update the delta cursor information."""
+        self.delta_label.setText(f"Δ: {delta_info}")
+    
+    def clear_cursors(self):
+        """Clear both cursor labels."""
+        self.current_label.setText("Cursor: --")
+        self.delta_label.setText("Δ: --")
+
+
+class SimpleGraphContainer(QFrame):
+    """Simple container for 2D polar plots without cursor labels."""
+    
+    def __init__(self, title: str, width: int, height: int, color: str):
+        super().__init__()
+        self.setFixedSize(width, height)
+        self.setup_ui(title, width, height, color)
+    
+    def setup_ui(self, title: str, width: int, height: int, color: str):
+        """Setup the simple graph container UI."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Simple title label only
         self.title_label = QLabel(title)
         self.title_label.setStyleSheet(f"background-color: {color}; padding: 4px; font-weight: bold;")
         self.title_label.setFixedHeight(25)
@@ -224,13 +298,6 @@ class GraphContainer(QFrame):
         
         layout.addWidget(self.title_label)
         layout.addWidget(self.canvas_frame)
-    
-    def update_title(self, base_title: str, cursor_info: str = ""):
-        """Update the title with optional cursor information."""
-        if cursor_info:
-            self.title_label.setText(f"{base_title} | {cursor_info}")
-        else:
-            self.title_label.setText(base_title)
 
 
 class VTKWidget(QVTKRenderWindowInteractor):
