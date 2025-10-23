@@ -40,7 +40,8 @@ def canonical_direction(azim: float, elev: float) -> Tuple[float, float]:
     Return a canonical (azim, elev) pair such that two directions pointing to
     the same point in space yield the same canonical representation.
 
-    Uses (azim, elev) and (azim+180, 180-elev), and keeps the one with elev in [0, 90].
+    Ensures elevation is in [-90, 90] range and azimuth is in [0, 360].
+    Special handling: treats 0° and 360° as the same for averaging purposes.
     
     Args:
         azim: Azimuth angle in degrees
@@ -49,22 +50,21 @@ def canonical_direction(azim: float, elev: float) -> Tuple[float, float]:
     Returns:
         Tuple of canonical (azimuth, elevation) angles
     """
-    # Special case: vertical direction
-    if elev == 90 or elev == 270:
-        return (0, 90)
+    # Handle azimuth: treat 0° and 360° as the same for averaging
+    canonical_azim = azim % 360
+    if canonical_azim == 0:
+        canonical_azim = 0  # Use 0 as canonical for both 0° and 360°
     
-    # Ensure elevation is in real degrees, do not use mod
-    mirror_azim = (azim + 180) % 360
-    mirror_elev = 180 - elev
-
-    # Choose canonical based on smaller elevation
-    if abs(mirror_elev) < abs(elev):
-        canonical_azim = mirror_azim
-        canonical_elev = mirror_elev
-    else:
-        canonical_azim = azim % 360
-        canonical_elev = elev
-
+    # Normalize elevation to [-90, 90]
+    canonical_elev = elev % 360
+    
+    # Handle elevation outside [-90, 90] range
+    if canonical_elev > 270:  # [270, 360) -> [-90, 0)
+        canonical_elev = canonical_elev - 360
+    elif canonical_elev > 90:  # (90, 270] -> flip to other hemisphere
+        canonical_azim = (canonical_azim + 180) % 360
+        canonical_elev = 180 - canonical_elev
+    
     return canonical_azim, canonical_elev
 
 
@@ -76,7 +76,7 @@ def redundancy_average_spl(df: pd.DataFrame) -> pd.DataFrame:
         df: DataFrame with columns 'azim', 'elev', and frequency columns
         
     Returns:
-        DataFrame with averaged redundant measurements
+        DataFrame with canonical coordinates and reconstructed elevations above 90°
     """
     df = df.copy()
     spl_cols = [col for col in df.columns if col not in ["azim", "elev"]]
@@ -84,25 +84,86 @@ def redundancy_average_spl(df: pd.DataFrame) -> pd.DataFrame:
     # Step 1: Canonical key per row
     df["canonical"] = df.apply(lambda row: canonical_direction(row["azim"], row["elev"]), axis=1)
 
-    # Step 2: Compute energy average per canonical group
-    def energy_average(group):
-        result = {}
+    # Step 2: Group by canonical coordinates and average
+    canonical_groups = df.groupby("canonical")
+    result_rows = []
+    
+    for canonical_coords, group in canonical_groups:
+        canonical_azim, canonical_elev = canonical_coords
+        
+        # Compute averaged SPL values
+        averaged_spl = {}
         for col in spl_cols:
             values = group[col].dropna().values
             if len(values) > 0:
                 linear = 10 ** (values / 10)
-                result[col] = 10 * np.log10(linear.mean())
+                averaged_spl[col] = 10 * np.log10(linear.mean())
             else:
-                result[col] = np.nan
-        return pd.Series(result)
-
-    averaged = df.groupby("canonical")[spl_cols].apply(energy_average)
-
-    # Step 3: Map back to all original rows
-    for col in spl_cols:
-        df[col] = df["canonical"].map(averaged[col])
+                averaged_spl[col] = np.nan
+        
+        # Create row with canonical coordinates
+        row = {
+            "azim": canonical_azim,
+            "elev": canonical_elev,
+            **averaged_spl
+        }
+        result_rows.append(row)
     
-    return df.drop(columns=["canonical"])
+    # Convert to DataFrame
+    result_df = pd.DataFrame(result_rows)
+    
+    # Step 3: Reconstruct elevations above 90° by mirroring canonical coordinates
+    # TEMPORARILY DISABLED - may be causing duplicate surfaces
+    # reconstruction_rows = []
+    # for _, row in result_df.iterrows():
+    #     azim, elev = row["azim"], row["elev"]
+    #     
+    #     # If elevation is in [-90, 90], also add the mirrored version for elevations above 90°
+    #     if -90 <= elev <= 90:
+    #         # Add the mirrored version: elev_high = 180 - elev, azim_high = azim + 180
+    #         mirrored_azim = (azim + 180) % 360
+    #         mirrored_elev = 180 - elev
+    #         
+    #         # Only add if the mirrored elevation is above 90° and not already present
+    #         if mirrored_elev > 90:
+    #             mirrored_row = row.copy()
+    #             mirrored_row["azim"] = mirrored_azim
+    #             mirrored_row["elev"] = mirrored_elev
+    #             reconstruction_rows.append(mirrored_row)
+    # 
+    # # Add reconstructed rows
+    # if reconstruction_rows:
+    #     reconstruction_df = pd.DataFrame(reconstruction_rows)
+    #     result_df = pd.concat([result_df, reconstruction_df], ignore_index=True)
+    #     
+    #     # Re-canonicalize the combined data to ensure no duplicates
+    #     result_df = result_df.drop_duplicates(subset=["azim", "elev"])
+    
+    # Step 4: Ensure both 0° and 360° azimuth values exist for continuity
+    continuity_rows = []
+    for _, row in result_df.iterrows():
+        azim, elev = row["azim"], row["elev"]
+        
+        # If we have azim=0, also add azim=360 (same data)
+        if azim == 0:
+            continuity_row = row.copy()
+            continuity_row["azim"] = 360
+            continuity_rows.append(continuity_row)
+        # If we have azim=360, also add azim=0 (same data)
+        elif azim == 360:
+            continuity_row = row.copy()
+            continuity_row["azim"] = 0
+            continuity_rows.append(continuity_row)
+    
+    # Add continuity rows
+    if continuity_rows:
+        continuity_df = pd.DataFrame(continuity_rows)
+        result_df = pd.concat([result_df, continuity_df], ignore_index=True)
+    
+    # Remove duplicates
+    result_df = result_df.drop_duplicates(subset=["azim", "elev"])
+    
+    return result_df
 
 
 def normalize_by_90deg(df: pd.DataFrame, df_90: pd.DataFrame) -> pd.DataFrame:

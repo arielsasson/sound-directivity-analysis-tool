@@ -196,13 +196,22 @@ class EventHandlers:
         """Plot all visualizations for the given frequency."""
         self.cleanup_data(frequency)
         
+        # Get distance scale factor from slider
+        distance_scale_factor = self.main_window.control_panel.distance_scale_slider.value()
+        
+        # Update distance scale factor in mouse followers
+        if self.spl_mouse_follower:
+            self.spl_mouse_follower.update_distance_scale_factor(distance_scale_factor)
+        if self.norm_mouse_follower:
+            self.norm_mouse_follower.update_distance_scale_factor(distance_scale_factor)
+        
         # Create balloon plots
         mesh_spl, line_azim1, line_elev1, *text_labels1 = create_balloon_plot(
-            self.main_window.df_clean, frequency, False
+            self.main_window.df_clean, frequency, False, distance_scale_factor
         )
         
         mesh_norm, line_azim2, line_elev2, *text_labels2 = create_balloon_plot(
-            self.main_window.df_norm, frequency, True
+            self.main_window.df_norm, frequency, True, distance_scale_factor
         )
         
         # Update VTK plotters
@@ -234,17 +243,14 @@ class EventHandlers:
         
         # Create or update MouseFollower AFTER show() call
         if plotter == self.main_window.plotter_spl:
-            print("Creating/updating SPL MouseFollower")
             # SPL plot
             if self.spl_mouse_follower:
-                print("Updating existing SPL MouseFollower")
                 # Update existing follower with new data and mesh
                 self.spl_mouse_follower.update_data(self.main_window.df_clean, frequency)
                 self.spl_mouse_follower.mesh = mesh
                 # Reconnect callbacks after show() call
                 self.spl_mouse_follower._reconnect_callbacks()
             else:
-                print("Creating new SPL MouseFollower")
                 # Create new follower
                 self.spl_mouse_follower = MouseFollower(
                     plotter, mesh, self.main_window.df_clean, frequency, "SPL"
@@ -274,18 +280,54 @@ class EventHandlers:
     
     def update_polar_plots(self, frequency: str):
         """Update polar plots with new data."""
-        azimuth_angles = self.main_window.df_clean['azim'].unique()
-        elevation_angles = self.main_window.df_clean['elev'].unique()
+        # Check if user wants to use normalized data for 2D plots
+        use_normalized = self.main_window.control_panel.normalized_2d_plots_checkbox.isChecked()
+        df = self.main_window.df_norm if use_normalized else self.main_window.df_clean
         
-        # Get data for different views
-        spls_superior = self.main_window.df_clean.loc[self.main_window.df_clean['elev'] == 0, frequency].to_numpy()
-        spls_frontal = self.main_window.df_clean.loc[self.main_window.df_clean['azim'] == 90, frequency].to_numpy()
-        spls_sagital = self.main_window.df_clean.loc[self.main_window.df_clean['azim'] == 0, frequency].to_numpy()
+        # Get unique angles
+        azimuth_angles = sorted(df['azim'].unique())
+        elevation_angles = sorted(df['elev'].unique())
+        
+        # Vista superior: elev = 0 (or closest to 0)
+        elev_0_data = df[np.abs(df['elev'] - 0) < 1]  # Within 1 degree of 0
+        if not elev_0_data.empty:
+            spls_superior = elev_0_data.sort_values('azim')[frequency].to_numpy()
+            azim_superior = elev_0_data.sort_values('azim')['azim'].to_numpy()
+        else:
+            # If no data at elev=0, use the closest elevation
+            closest_elev = elevation_angles[np.argmin(np.abs(elevation_angles))]
+            elev_data = df[np.abs(df['elev'] - closest_elev) < 1]
+            spls_superior = elev_data.sort_values('azim')[frequency].to_numpy()
+            azim_superior = elev_data.sort_values('azim')['azim'].to_numpy()
+        
+        # Vista frontal: azim = 90 (or closest to 90)
+        azim_90_data = df[np.abs(df['azim'] - 90) < 1]  # Within 1 degree of 90
+        if not azim_90_data.empty:
+            spls_frontal = azim_90_data.sort_values('elev')[frequency].to_numpy()
+            elev_frontal = azim_90_data.sort_values('elev')['elev'].to_numpy()
+        else:
+            # If no data at azim=90, use the closest azimuth
+            closest_azim = azimuth_angles[np.argmin(np.abs(np.array(azimuth_angles) - 90))]
+            azim_data = df[np.abs(df['azim'] - closest_azim) < 1]
+            spls_frontal = azim_data.sort_values('elev')[frequency].to_numpy()
+            elev_frontal = azim_data.sort_values('elev')['elev'].to_numpy()
+        
+        # Vista sagital: azim = 0 (or closest to 0)
+        azim_0_data = df[np.abs(df['azim'] - 0) < 1]  # Within 1 degree of 0
+        if not azim_0_data.empty:
+            spls_sagital = azim_0_data.sort_values('elev')[frequency].to_numpy()
+            elev_sagital = azim_0_data.sort_values('elev')['elev'].to_numpy()
+        else:
+            # If no data at azim=0, use the closest azimuth
+            closest_azim = azimuth_angles[np.argmin(np.abs(np.array(azimuth_angles) - 0))]
+            azim_data = df[np.abs(df['azim'] - closest_azim) < 1]
+            spls_sagital = azim_data.sort_values('elev')[frequency].to_numpy()
+            elev_sagital = azim_data.sort_values('elev')['elev'].to_numpy()
         
         # Update polar plots
-        self.main_window.polar_canvases[0].update_plot(azimuth_angles, spls_superior)
-        self.main_window.polar_canvases[1].update_plot(elevation_angles, spls_frontal)
-        self.main_window.polar_canvases[2].update_plot(elevation_angles, spls_sagital)
+        self.main_window.polar_canvases[0].update_plot(azim_superior, spls_superior)
+        self.main_window.polar_canvases[1].update_plot(elev_frontal, spls_frontal)
+        self.main_window.polar_canvases[2].update_plot(elev_sagital, spls_sagital)
     
     def update_mouse_values(self, azim, elev, spl, azim_diff, spl_diff):
         """Update mouse interaction values - information now displayed in plot headers."""

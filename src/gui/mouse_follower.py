@@ -33,19 +33,21 @@ class MouseFollower(QObject):
         self.fixed_elev = None
         self.fixed_spl = None
         
+        # Store scaling parameters for distance calculations
+        self.min_spl = None
+        self.max_spl = None
+        self.distance_scale_factor = 30  # Default value
+        
         self._last_move_time = 0
         self._move_interval = 1/60  # 60 FPS
         self._last_click_time = 0
         self._click_debounce_interval = 0.1  # 100ms debounce
         
         # Connect mouse events - simple vedo callbacks
-        print(f"Setting up MouseFollower for {plot_type} plot")
-        
         # Add callbacks - use click press instead of release
         self.plotter.add_callback("mouse move", self.on_mouse_move)
         self.plotter.add_callback("mouse left click", self.on_left_click_press)
         self.plotter.add_callback("mouse right click", self.on_right_click_press)
-        print("Callbacks added successfully")
         
         # Store mesh vertices for snapping
         self.mesh_vertices = None
@@ -75,12 +77,10 @@ class MouseFollower(QObject):
                         az_rad = np.radians(-azim)  # Note: negative for azimuth
                         el_rad = np.radians(elev)
                         
-                        # For normalized data, use distance based on SPL values
-                        if self.plot_type == "normalized":
-                            min_spl = self.df[self.frequency_column].min()
-                            distance = spl - min_spl
-                        else:
-                            distance = spl
+                        # Use the same distance scaling as the mesh
+                        min_spl = self.df[self.frequency_column].min()
+                        max_spl = self.df[self.frequency_column].max()
+                        distance = self.distance_scale_factor + (spl - min_spl) * (50 - self.distance_scale_factor) / (max_spl - min_spl)
                         
                         x = distance * np.cos(el_rad) * np.cos(az_rad)
                         y = distance * np.cos(el_rad) * np.sin(az_rad)
@@ -95,21 +95,35 @@ class MouseFollower(QObject):
             self.mesh_vertex_data = None
     
     def _find_closest_vertex(self, picked_pos):
-        """Find the closest mesh vertex to the picked position."""
+        """Find the closest mesh vertex to the picked position and return the properly scaled position."""
         if self.mesh_vertices is None:
             return picked_pos, None
         
         # Calculate distances to all vertices
         distances = np.linalg.norm(self.mesh_vertices - picked_pos, axis=1)
         closest_idx = np.argmin(distances)
-        closest_vertex = self.mesh_vertices[closest_idx]
         
         # Get corresponding data if available
         closest_data = None
         if self.mesh_vertex_data is not None and closest_idx < len(self.mesh_vertex_data):
             closest_data = self.mesh_vertex_data[closest_idx]
         
-        return closest_vertex, closest_data
+        if closest_data is not None and self.min_spl is not None and self.max_spl is not None:
+            azim, elev, spl = closest_data
+            
+            # Calculate the properly scaled distance for this SPL value
+            scaled_distance = self.distance_scale_factor + (spl - self.min_spl) * (50 - self.distance_scale_factor) / (self.max_spl - self.min_spl)
+            
+            # Convert back to 3D coordinates using the scaled distance
+            x = scaled_distance * np.cos(np.radians(elev)) * np.cos(np.radians(-azim))
+            y = scaled_distance * np.cos(np.radians(elev)) * np.sin(np.radians(-azim))
+            z = scaled_distance * np.sin(np.radians(elev))
+            
+            scaled_position = np.array([x, y, z])
+            return scaled_position, closest_data
+        else:
+            # Fallback to original position if no vertex data
+            return picked_pos, closest_data
     
     def on_mouse_move(self, evt):
         """Handle mouse move events."""
@@ -135,8 +149,6 @@ class MouseFollower(QObject):
             self.red_cursor.lighting('off')
             self.plotter += self.red_cursor
             self.red_cursor_locked = False
-            print(f"Red cursor created on mouse move! Locked: {self.red_cursor_locked}")
-            print(f"Red cursor position: {self.red_cursor.pos()}")
             self.plotter.render()
             
             # Update current cursor info
@@ -149,9 +161,6 @@ class MouseFollower(QObject):
             
         elif not self.red_cursor_locked:
             # Red cursor exists and is unlocked - move it
-            print(f"Moving unlocked red cursor to: {snapped_pos}")
-            print(f"Red cursor locked state: {self.red_cursor_locked}")
-            print(f"Red cursor current pos: {self.red_cursor.pos()}")
             
             # Try different approach to update cursor position
             # Remove old cursor and create new one at new position
@@ -160,7 +169,6 @@ class MouseFollower(QObject):
             self.red_cursor.lighting('off')
             self.plotter += self.red_cursor
             
-            print(f"Red cursor new pos: {self.red_cursor.pos()}")
             self.plotter.render()
             
             # Update current cursor info
@@ -173,10 +181,9 @@ class MouseFollower(QObject):
             
         elif self.red_cursor_locked and not self.brown_cursor:
             # Red cursor is locked, create brown cursor to follow mouse
-            self.brown_cursor = Sphere(pos=snapped_pos, r=1.0, c='brown', alpha=1.0)
+            self.brown_cursor = Sphere(pos=snapped_pos, r=1.0, c='tan', alpha=1.0)
             self.brown_cursor.lighting('off')
             self.plotter += self.brown_cursor
-            print("Brown cursor created - following mouse")
             
         elif self.brown_cursor:
             # Brown cursor exists - move it and calculate delta
@@ -207,22 +214,17 @@ class MouseFollower(QObject):
         # Debounce to prevent double-triggering
         now = time.time()
         if now - self._last_click_time < self._click_debounce_interval:
-            print("Click ignored - too soon after last click")
             return
         self._last_click_time = now
         
-        print("Left click press triggered!")
         picked = evt.picked3d
         actor = evt.actor
-        print(f"Picked: {picked}, Actor: {actor}")
 
         if picked is None:
-            print("Click not on any object, ignoring")
             return
             
         # Allow clicks on mesh or cursor
         if actor != self.mesh and actor != self.cursor:
-            print(f"Click not on mesh or cursor, ignoring. Actor: {actor}, Mesh: {self.mesh}, Cursor: {self.cursor}")
             return
 
         # Snap to closest vertex
@@ -236,9 +238,6 @@ class MouseFollower(QObject):
                 self.fixed_azim, self.fixed_elev, self.fixed_spl = vertex_data
             else:
                 self.fixed_azim, self.fixed_elev, self.fixed_spl = self._position_to_angles_spl(snapped_pos)
-            print(f"Red cursor locked! Fixed values: azim={self.fixed_azim:.0f}°, elev={self.fixed_elev:.0f}°, spl={self.fixed_spl:.1f}dB")
-        else:
-            print("Red cursor already locked or doesn't exist")
 
         self.plotter.render()
     
@@ -247,12 +246,10 @@ class MouseFollower(QObject):
         # Unlock red cursor and remove brown cursor
         if self.red_cursor_locked:
             self.red_cursor_locked = False
-            print("Red cursor unlocked")
         
         if self.brown_cursor:
             self.plotter.remove(self.brown_cursor)
             self.brown_cursor = None
-            print("Brown cursor removed")
             
             # Clear delta values
             self.cursor_info_updated.emit("delta", "--")
@@ -277,14 +274,19 @@ class MouseFollower(QObject):
         # Calculate elevation (in degrees)
         elev = np.degrees(np.arcsin(z / distance))
         
-        # For normalized plots, we need to convert distance back to SPL
-        if self.plot_type == "normalized":
-            # Distance was calculated as (spl - min_spl), so spl = distance + min_spl
-            min_spl = self.df[self.frequency_column].min()
-            spl = distance + min_spl
+        # Convert distance back to SPL using proper linear interpolation
+        # The mesh uses: distance = distance_scale_factor + (spl - min_spl) * (50 - distance_scale_factor) / (max_spl - min_spl)
+        # So to reverse: spl = min_spl + (distance - distance_scale_factor) * (max_spl - min_spl) / (50 - distance_scale_factor)
+        
+        # Update distance scale factor from slider
+        self.distance_scale_factor = self.main_window.control_panel.distance_scale_slider.value()
+        
+        if self.distance_scale_factor < 50 and self.max_spl is not None and self.min_spl is not None:
+            # Linear interpolation: distance maps to [distance_scale_factor, 50] -> spl maps to [min_spl, max_spl]
+            spl = self.min_spl + (distance - self.distance_scale_factor) * (self.max_spl - self.min_spl) / (50 - self.distance_scale_factor)
         else:
-            # For SPL plots, distance is directly the SPL value
-            spl = distance
+            # Fallback to min_spl if no scaling possible
+            spl = self.min_spl if self.min_spl is not None else 0
         
         return azim, elev, spl
     
@@ -292,7 +294,16 @@ class MouseFollower(QObject):
         """Update the data used for calculations."""
         self.df = df
         self.frequency_column = frequency_column
+        # Store min/max values for distance calculations
+        self.min_spl = df[frequency_column].min()
+        self.max_spl = df[frequency_column].max()
         # Update mesh vertices when data changes
+        self._update_mesh_vertices()
+    
+    def update_distance_scale_factor(self, scale_factor):
+        """Update the distance scale factor and recalculate vertices."""
+        self.distance_scale_factor = scale_factor
+        # Recalculate mesh vertices with new scaling
         self._update_mesh_vertices()
     
     def _reconnect_callbacks(self):
@@ -305,5 +316,4 @@ class MouseFollower(QObject):
         self.plotter.add_callback("mouse move", self.on_mouse_move)
         self.plotter.add_callback("mouse left click", self.on_left_click_press)
         self.plotter.add_callback("mouse right click", self.on_right_click_press)
-        print("Callbacks reconnected successfully")
     

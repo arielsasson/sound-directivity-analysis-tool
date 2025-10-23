@@ -6,7 +6,7 @@ This module contains custom widgets and UI components used in the main applicati
 
 from PyQt5.QtWidgets import (
     QFrame, QLabel, QPushButton, QProgressBar, QComboBox, QLineEdit, 
-    QGroupBox, QHBoxLayout, QVBoxLayout, QCheckBox, QSizePolicy
+    QGroupBox, QHBoxLayout, QVBoxLayout, QCheckBox, QSizePolicy, QSlider
 )
 from PyQt5.QtCore import Qt
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -105,10 +105,16 @@ class ControlPanel(QFrame):
         self.band_dropdown.setStyleSheet("background-color: white;")
         layout.addWidget(self.band_dropdown)
         
+        # Distance scale factor slider
+        self.create_distance_scale_slider(layout)
+        
+        # Normalized 2D plots checkbox
+        self.create_normalized_2d_plots_checkbox(layout)
+        
         # Standard deviation label
         self.std_label = QLabel("Desvío estándar en la posición de referencia (90°): —")
         self.std_label.setWordWrap(True)
-        self.std_label.setStyleSheet("color: gray;")
+        self.std_label.setStyleSheet("color: gray; font-weight: bold;")
         layout.addWidget(self.std_label)
         
         # Mouse interaction display section (simplified - main info now in plot headers)
@@ -116,6 +122,89 @@ class ControlPanel(QFrame):
         
         # Stretch to push widgets to top
         layout.addStretch()
+    
+    def create_distance_scale_slider(self, layout):
+        """Create distance scale factor slider."""
+        # Distance scale factor group
+        scale_group = QGroupBox("Factor de escala de distancias")
+        scale_layout = QVBoxLayout(scale_group)
+        
+        # Slider
+        self.distance_scale_slider = QSlider(Qt.Horizontal)
+        self.distance_scale_slider.setMinimum(0)
+        self.distance_scale_slider.setMaximum(50)
+        self.distance_scale_slider.setValue(30)  # Default to 30
+        self.distance_scale_slider.setEnabled(False)
+        self.distance_scale_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #999999;
+                height: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #B1B1B1, stop:1 #c4c4c4);
+                margin: 2px 0;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #b4b4b4, stop:1 #8f8f8f);
+                border: 1px solid #5c5c5c;
+                width: 18px;
+                margin: -2px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #d4d4d4, stop:1 #afafaf);
+            }
+        """)
+        
+        # Value label
+        self.distance_scale_label = QLabel("30")
+        self.distance_scale_label.setAlignment(Qt.AlignCenter)
+        self.distance_scale_label.setStyleSheet("font-weight: bold; color: blue;")
+        
+        # Range labels
+        range_layout = QHBoxLayout()
+        range_layout.addWidget(QLabel("0"))
+        range_layout.addStretch()
+        range_layout.addWidget(QLabel("50"))
+        
+        scale_layout.addWidget(self.distance_scale_label)
+        scale_layout.addWidget(self.distance_scale_slider)
+        scale_layout.addLayout(range_layout)
+        
+        layout.addWidget(scale_group)
+    
+    def create_normalized_2d_plots_checkbox(self, layout):
+        """Create checkbox for normalized 2D plots option."""
+        # Normalized 2D plots group
+        normalized_group = QGroupBox("Opciones de gráficos 2D")
+        normalized_layout = QVBoxLayout(normalized_group)
+        
+        # Checkbox for using normalized data in 2D plots
+        self.normalized_2d_plots_checkbox = QCheckBox("Usar datos normalizados\nen gráficos 2D")
+        self.normalized_2d_plots_checkbox.setChecked(False)  # Default unchecked
+        self.normalized_2d_plots_checkbox.setEnabled(False)
+        self.normalized_2d_plots_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-weight: bold;
+                color: #333;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:unchecked {
+                border: 2px solid #999;
+                background-color: white;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked {
+                border: 2px solid #0078d4;
+                background-color: #0078d4;
+                border-radius: 3px;
+            }
+        """)
+        
+        normalized_layout.addWidget(self.normalized_2d_plots_checkbox)
+        layout.addWidget(normalized_group)
     
     def create_mouse_display_section(self, layout):
         """Create mouse interaction display section."""
@@ -234,7 +323,7 @@ class GraphContainer(QFrame):
         
         # Right label - delta cursor info (fixed to right)
         self.delta_label = QLabel("Δ --")
-        self.delta_label.setStyleSheet("font-weight: bold; color: brown; font-size: 12px; background-color: rgba(255, 255, 255, 0.8); padding: 2px 4px; border-radius: 3px;")
+        self.delta_label.setStyleSheet("font-weight: bold; color: #D2691E; font-size: 12px; background-color: rgba(255, 255, 255, 0.8); padding: 2px 4px; border-radius: 3px;")
         self.delta_label.setFixedWidth(250)
         self.delta_label.setAlignment(Qt.AlignRight)
         
@@ -322,6 +411,63 @@ class PolarPlotWidget(FigureCanvas):
         self.ax.set_theta_direction(-1)
         self.ax.grid(True, linestyle='--', linewidth=0.6, color='gray')
     
+    def calculate_polar_scale(self, spl):
+        """Calculate optimal scale and tick intervals for polar plots."""
+        import numpy as np
+        
+        if len(spl) == 0:
+            return 40, 80, [40, 50, 60, 70, 80]
+        
+        # Find data range
+        min_spl = np.min(spl)
+        max_spl = np.max(spl)
+        
+        # Calculate range and determine appropriate tick interval
+        data_range = max_spl - min_spl
+        
+        # Determine tick interval based on data range
+        if data_range <= 8:
+            tick_interval = 1
+        elif data_range <= 20:
+            tick_interval = 2.5
+        elif data_range <= 40:
+            tick_interval = 5
+        elif data_range <= 80:
+            tick_interval = 10
+        else:
+            tick_interval = 20
+        
+        # Calculate bounds (next/previous multiple of 5)
+        rmin = int(min_spl // 5) * 5  # Previous multiple of 5
+        rmax = int(max_spl // 5) * 5 + 5  # Next multiple of 5
+        
+        # Generate ticks
+        rticks = []
+        current = rmin
+        while current <= rmax and len(rticks) <= 5:
+            rticks.append(current)
+            current += tick_interval
+        
+        # Ensure we don't exceed 5 ticks
+        if len(rticks) > 5:
+            # Increase interval to reduce number of ticks
+            if tick_interval == 1:
+                tick_interval = 2.5
+            elif tick_interval == 2.5:
+                tick_interval = 5
+            elif tick_interval == 5:
+                tick_interval = 10
+            elif tick_interval == 10:
+                tick_interval = 20
+            
+            rticks = []
+            current = rmin
+            while current <= rmax and len(rticks) <= 5:
+                rticks.append(current)
+                current += tick_interval
+        
+        return rmin, rmax, rticks
+
     def update_plot(self, azimuth: list, spl: list, title: str = ''):
         """Update the polar plot with new data."""
         import numpy as np
@@ -332,12 +478,19 @@ class PolarPlotWidget(FigureCanvas):
         self.ax.set_theta_direction(-1)
         self.ax.grid(True, linestyle='--', color='gray', linewidth=0.6)
         
+        # Calculate dynamic scale
+        rmin, rmax, rticks = self.calculate_polar_scale(spl)
+        
         sns.set_style("whitegrid")
         self.ax.plot(np.radians(azimuth), spl, color='darkblue', linewidth=2.5, alpha=0.9)
         self.ax.fill(np.radians(azimuth), spl, color='lightblue', alpha=0.3)
-        self.ax.set_rmax(max(spl) + 2)
+        self.ax.set_rlim(rmin, rmax)
+        self.ax.set_rticks(rticks)
+        
+        # Set azimuth ticks at 30° intervals
+        self.ax.set_thetagrids(range(0, 360, 30), labels=[f'{i}°' for i in range(0, 360, 30)])
+        
         self.ax.set_title(title, va='bottom', fontsize=10)
-        self.ax.set_rticks([20, 40, 60, 80])
         self.ax.set_rlabel_position(135)
         
         self.draw()

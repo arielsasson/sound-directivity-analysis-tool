@@ -41,7 +41,7 @@ def spherical_to_cartesian(azim_deg: np.ndarray, elev_deg: np.ndarray, r: float 
     return np.vstack((x, y, z)).T
 
 
-def create_surface_mesh(df: pd.DataFrame, spl_column: str, normalized: bool = False) -> Mesh:
+def create_surface_mesh(df: pd.DataFrame, spl_column: str, normalized: bool = False, distance_scale_factor: float = 0.0) -> Mesh:
     """
     Create a 3D surface mesh from directivity data.
     
@@ -55,16 +55,20 @@ def create_surface_mesh(df: pd.DataFrame, spl_column: str, normalized: bool = Fa
     df['az'] = np.radians(-df['azim'])
     df['el'] = np.radians(df['elev'])
     
-    # For normalized data with negative values, invert the distance so 0 dB is farthest and most negative is closest
+    # Calculate distance values with scale factor
     spl_values = df[spl_column].copy()
+    min_spl = spl_values.min()
+    max_spl = spl_values.max()
+    
     if normalized:
         # For normalized data: 0 dB should be farthest, negative values closer to center
-        # We need to invert the relationship: use current_value - min as distance
-        # This way: 0 dB (max) gets max distance, most negative gets 0 distance
-        min_spl = spl_values.min()  # This should be the most negative value
-        distance_values = spl_values - min_spl
+        # Map values to distance range [distance_scale_factor, 50]
+        # 0 dB (max) gets distance 50, most negative gets distance_scale_factor
+        distance_values = distance_scale_factor + (spl_values - min_spl) * (50 - distance_scale_factor) / (max_spl - min_spl)
     else:
-        distance_values = spl_values
+        # For SPL data: map to distance range [distance_scale_factor, 50]
+        # max_spl gets distance 50, min_spl gets distance_scale_factor
+        distance_values = distance_scale_factor + (spl_values - min_spl) * (50 - distance_scale_factor) / (max_spl - min_spl)
     
     df['x'] = distance_values * np.cos(df['el']) * np.cos(df['az'])
     df['y'] = distance_values * np.cos(df['el']) * np.sin(df['az'])
@@ -131,13 +135,13 @@ def create_reference_lines(max_distance: float) -> tuple:
     # Line for Azimuth = 0°, elevations from -30° to +210°
     elevations = np.linspace(-30, 210, 100)
     azimuth_zero = np.zeros_like(elevations)
-    line_coords = spherical_to_cartesian(azimuth_zero, elevations, r=max_distance + 5)
+    line_coords = spherical_to_cartesian(azimuth_zero, elevations, r=max_distance + 2)
     azimuth_line = Line(line_coords, c=REFERENCE_LINE_COLOR, lw=REFERENCE_LINE_WIDTH)
     
     # Line for Elevation = 0°, Azimuth from -180° to +180°
     azimuth = np.linspace(-180, 180, 100)
     elevation_zero = np.zeros_like(azimuth)
-    line_coords_elev0 = spherical_to_cartesian(azimuth, elevation_zero, r=max_distance + 5)
+    line_coords_elev0 = spherical_to_cartesian(azimuth, elevation_zero, r=max_distance + 2)
     elevation_line = Line(line_coords_elev0, c=REFERENCE_LINE_COLOR, lw=REFERENCE_LINE_WIDTH)
     
     # Text labels for cardinal directions
@@ -158,7 +162,7 @@ def create_reference_lines(max_distance: float) -> tuple:
     return azimuth_line, elevation_line, text_labels
 
 
-def create_balloon_plot(df: pd.DataFrame, frequency: str, normalized: bool = False) -> tuple:
+def create_balloon_plot(df: pd.DataFrame, frequency: str, normalized: bool = False, distance_scale_factor: float = 0.0) -> tuple:
     """
     Create a complete balloon plot visualization.
     
@@ -174,10 +178,12 @@ def create_balloon_plot(df: pd.DataFrame, frequency: str, normalized: bool = Fal
     max_spl = max(spls)
     
     # Create surface mesh
-    mesh = create_surface_mesh(df, frequency, normalized)
+    mesh = create_surface_mesh(df, frequency, normalized, distance_scale_factor)
     
-    # Create reference lines and labels
-    azimuth_line, elevation_line, text_labels = create_reference_lines(max_spl)
+    # Create reference lines and labels using the same distance scaling as the mesh
+    min_spl = df[frequency].min()
+    max_distance = distance_scale_factor + (max_spl - min_spl) * (50 - distance_scale_factor) / (max_spl - min_spl)
+    azimuth_line, elevation_line, text_labels = create_reference_lines(max_distance)
     
     # Colormap is now applied in create_surface_mesh function
     
@@ -188,6 +194,70 @@ def create_balloon_plot(df: pd.DataFrame, frequency: str, normalized: bool = Fal
         mesh.add_scalarbar(title='dB SPL')
     
     return mesh, azimuth_line, elevation_line, text_labels
+
+
+def calculate_polar_scale(spl: np.ndarray) -> tuple:
+    """
+    Calculate optimal scale and tick intervals for polar plots.
+    
+    Args:
+        spl: SPL values in dB
+        
+    Returns:
+        Tuple of (rmin, rmax, rticks)
+    """
+    if len(spl) == 0:
+        return 40, 80, [40, 50, 60, 70, 80]
+    
+    # Find data range
+    min_spl = np.min(spl)
+    max_spl = np.max(spl)
+    
+    # Calculate range and determine appropriate tick interval
+    data_range = max_spl - min_spl
+    
+    # Determine tick interval based on data range
+    if data_range <= 8:
+        tick_interval = 1
+    elif data_range <= 20:
+        tick_interval = 2.5
+    elif data_range <= 40:
+        tick_interval = 5
+    elif data_range <= 80:
+        tick_interval = 10
+    else:
+        tick_interval = 20
+    
+    # Calculate bounds (next/previous multiple of 5)
+    rmin = int(min_spl // 5) * 5  # Previous multiple of 5
+    rmax = int(max_spl // 5) * 5 + 5  # Next multiple of 5
+    
+    # Generate ticks
+    rticks = []
+    current = rmin
+    while current <= rmax and len(rticks) <= 5:
+        rticks.append(current)
+        current += tick_interval
+    
+    # Ensure we don't exceed 5 ticks
+    if len(rticks) > 5:
+        # Increase interval to reduce number of ticks
+        if tick_interval == 1:
+            tick_interval = 2.5
+        elif tick_interval == 2.5:
+            tick_interval = 5
+        elif tick_interval == 5:
+            tick_interval = 10
+        elif tick_interval == 10:
+            tick_interval = 20
+        
+        rticks = []
+        current = rmin
+        while current <= rmax and len(rticks) <= 5:
+            rticks.append(current)
+            current += tick_interval
+    
+    return rmin, rmax, rticks
 
 
 def create_polar_plot(ax, azimuth: np.ndarray, spl: np.ndarray, title: str = '') -> None:
@@ -208,10 +278,17 @@ def create_polar_plot(ax, azimuth: np.ndarray, spl: np.ndarray, title: str = '')
     
     ax.grid(True, linestyle='--', color='gray', linewidth=0.6)
 
+    # Calculate dynamic scale
+    rmin, rmax, rticks = calculate_polar_scale(spl)
+
     sns.set_style("whitegrid")
     ax.plot(np.radians(azimuth), spl, color=POLAR_PLOT_COLOR, linewidth=2.5, alpha=0.9)
     ax.fill(np.radians(azimuth), spl, color=POLAR_PLOT_FILL_COLOR, alpha=POLAR_PLOT_ALPHA)
-    ax.set_rmax(max(spl) + 2)
+    ax.set_rlim(rmin, rmax)
+    ax.set_rticks(rticks)
+    
+    # Set azimuth ticks at 30° intervals
+    ax.set_thetagrids(range(0, 360, 30), labels=[f'{i}°' for i in range(0, 360, 30)])
+    
     ax.set_title(title, va='bottom', fontsize=10)
-    ax.set_rticks([20, 40, 60, 80])  # adjust depending on your SPL range
     ax.set_rlabel_position(135)

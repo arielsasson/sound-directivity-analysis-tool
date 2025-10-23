@@ -155,6 +155,29 @@ class MainWindow(QMainWindow):
         
         # Interpolation checkbox
         self.control_panel.interpolation_checkbox.stateChanged.connect(self.on_interpolation_toggle)
+        
+        # Distance scale factor slider
+        self.control_panel.distance_scale_slider.valueChanged.connect(self.on_distance_scale_change)
+        
+        # Normalized 2D plots checkbox
+        self.control_panel.normalized_2d_plots_checkbox.stateChanged.connect(self.on_normalized_2d_plots_toggle)
+    
+    def on_distance_scale_change(self, value):
+        """Handle distance scale factor slider change."""
+        # Update the label
+        self.control_panel.distance_scale_label.setText(str(value))
+        
+        # Re-plot data if calculations are available
+        if hasattr(self, 'df_clean') and self.df_clean is not None:
+            current_frequency = self.control_panel.band_dropdown.currentText()
+            self.handlers.plot_data(current_frequency)
+    
+    def on_normalized_2d_plots_toggle(self, state):
+        """Handle normalized 2D plots checkbox toggle."""
+        # Re-plot data if calculations are available
+        if hasattr(self, 'df_clean') and self.df_clean is not None:
+            current_frequency = self.control_panel.band_dropdown.currentText()
+            self.handlers.plot_data(current_frequency)
     
     def import_measurements(self):
         """Import measurements directory."""
@@ -180,6 +203,8 @@ class MainWindow(QMainWindow):
             self.control_panel.band_dropdown.addItems([col for col in self.df.columns if "Hz" in col])
             self.control_panel.band_dropdown.setCurrentText("1000 Hz")
             self.control_panel.band_dropdown.setEnabled(True)
+            self.control_panel.distance_scale_slider.setEnabled(True)
+            self.control_panel.normalized_2d_plots_checkbox.setEnabled(True)
     
     def on_band_change(self, index):
         """Handle frequency band change."""
