@@ -209,9 +209,15 @@ def calculate_polar_scale(spl: np.ndarray) -> tuple:
     if len(spl) == 0:
         return 40, 80, [40, 50, 60, 70, 80]
     
+    # Remove NaN values
+    spl_clean = spl[~np.isnan(spl)]
+    
+    if len(spl_clean) == 0:
+        return 40, 80, [40, 50, 60, 70, 80]
+    
     # Find data range
-    min_spl = np.min(spl)
-    max_spl = np.max(spl)
+    min_spl = np.min(spl_clean)
+    max_spl = np.max(spl_clean)
     
     # Calculate range and determine appropriate tick interval
     data_range = max_spl - min_spl

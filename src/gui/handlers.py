@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .main_window import MainWindow
 
 from utils.data_generation import generate_balloon_data
-from data.processing import energy_std_spl, redundancy_average_spl, normalize_by_90deg
+from data.processing import energy_std_spl, redundancy_average_spl, normalize_by_90deg, apply_canonical_conversion
 from visualization.plots import create_balloon_plot, create_polar_plot
 from .mouse_follower import MouseFollower
 from config import (
@@ -171,7 +171,7 @@ class EventHandlers:
         std_db = energy_std_spl(spls_at_90.values)
         self.main_window.control_panel.std_label.setText(f"Desvío estándar en la posición de referencia (90°): {std_db:.2f} dB")
         
-        # Average redundant measurements
+        # Average redundant measurements (keep this step)
         self.main_window.df_clean = redundancy_average_spl(self.main_window.df)
         
         # Save reference data from averaged data
@@ -205,23 +205,27 @@ class EventHandlers:
         if self.norm_mouse_follower:
             self.norm_mouse_follower.update_distance_scale_factor(distance_scale_factor)
         
-        # Create balloon plots
+        # Apply canonical conversion only for balloon plots
+        df_clean_canonical = apply_canonical_conversion(self.main_window.df_clean)
+        df_norm_canonical = apply_canonical_conversion(self.main_window.df_norm)
+        
+        # Create balloon plots using canonical data
         mesh_spl, line_azim1, line_elev1, *text_labels1 = create_balloon_plot(
-            self.main_window.df_clean, frequency, False, distance_scale_factor
+            df_clean_canonical, frequency, False, distance_scale_factor
         )
         
         mesh_norm, line_azim2, line_elev2, *text_labels2 = create_balloon_plot(
-            self.main_window.df_norm, frequency, True, distance_scale_factor
+            df_norm_canonical, frequency, True, distance_scale_factor
         )
         
         # Update VTK plotters
-        self.update_vtk_plotter(self.main_window.plotter_spl, mesh_spl, line_azim1, line_elev1, text_labels1, frequency)
-        self.update_vtk_plotter(self.main_window.plotter_norm, mesh_norm, line_azim2, line_elev2, text_labels2, frequency)
+        self.update_vtk_plotter(self.main_window.plotter_spl, mesh_spl, line_azim1, line_elev1, text_labels1, frequency, df_clean_canonical)
+        self.update_vtk_plotter(self.main_window.plotter_norm, mesh_norm, line_azim2, line_elev2, text_labels2, frequency, df_norm_canonical)
         
         # Update polar plots
         self.update_polar_plots(frequency)
     
-    def update_vtk_plotter(self, plotter, mesh, azimuth_line, elevation_line, text_labels, frequency):
+    def update_vtk_plotter(self, plotter, mesh, azimuth_line, elevation_line, text_labels, frequency, df_canonical):
         """Update VTK plotter with new data."""
         # Remove old elements but keep callbacks
         plotter.clear()
@@ -246,14 +250,14 @@ class EventHandlers:
             # SPL plot
             if self.spl_mouse_follower:
                 # Update existing follower with new data and mesh
-                self.spl_mouse_follower.update_data(self.main_window.df_clean, frequency)
+                self.spl_mouse_follower.update_data(df_canonical, frequency)
                 self.spl_mouse_follower.mesh = mesh
                 # Reconnect callbacks after show() call
                 self.spl_mouse_follower._reconnect_callbacks()
             else:
                 # Create new follower
                 self.spl_mouse_follower = MouseFollower(
-                    plotter, mesh, self.main_window.df_clean, frequency, "SPL"
+                    plotter, mesh, df_canonical, frequency, "SPL"
                 )
                 self.spl_mouse_follower.values_updated.connect(self.update_mouse_values)
                 self.spl_mouse_follower.cursor_info_updated.connect(
@@ -264,14 +268,14 @@ class EventHandlers:
             # Normalized plot
             if self.norm_mouse_follower:
                 # Update existing follower with new data and mesh
-                self.norm_mouse_follower.update_data(self.main_window.df_norm, frequency)
+                self.norm_mouse_follower.update_data(df_canonical, frequency)
                 self.norm_mouse_follower.mesh = mesh
                 # Reconnect callbacks after show() call
                 self.norm_mouse_follower._reconnect_callbacks()
             else:
                 # Create new follower
                 self.norm_mouse_follower = MouseFollower(
-                    plotter, mesh, self.main_window.df_norm, frequency, "normalized"
+                    plotter, mesh, df_canonical, frequency, "normalized"
                 )
                 self.norm_mouse_follower.values_updated.connect(self.update_mouse_values)
                 self.norm_mouse_follower.cursor_info_updated.connect(
@@ -284,45 +288,35 @@ class EventHandlers:
         use_normalized = self.main_window.control_panel.normalized_2d_plots_checkbox.isChecked()
         df = self.main_window.df_norm if use_normalized else self.main_window.df_clean
         
-        # Get unique angles
-        azimuth_angles = sorted(df['azim'].unique())
-        elevation_angles = sorted(df['elev'].unique())
-        
-        # Vista superior: elev = 0 (or closest to 0)
-        elev_0_data = df[np.abs(df['elev'] - 0) < 1]  # Within 1 degree of 0
+        # Vista superior: Get data at exactly elev = 0
+        elev_0_data = df[df['elev'] == 0]
         if not elev_0_data.empty:
             spls_superior = elev_0_data.sort_values('azim')[frequency].to_numpy()
             azim_superior = elev_0_data.sort_values('azim')['azim'].to_numpy()
         else:
-            # If no data at elev=0, use the closest elevation
-            closest_elev = elevation_angles[np.argmin(np.abs(elevation_angles))]
-            elev_data = df[np.abs(df['elev'] - closest_elev) < 1]
-            spls_superior = elev_data.sort_values('azim')[frequency].to_numpy()
-            azim_superior = elev_data.sort_values('azim')['azim'].to_numpy()
+            # If no data at elev=0, create empty arrays
+            spls_superior = np.array([])
+            azim_superior = np.array([])
         
-        # Vista frontal: azim = 90 (or closest to 90)
-        azim_90_data = df[np.abs(df['azim'] - 90) < 1]  # Within 1 degree of 90
+        # Vista frontal: Get data at exactly azim = 90
+        azim_90_data = df[df['azim'] == 90]
         if not azim_90_data.empty:
             spls_frontal = azim_90_data.sort_values('elev')[frequency].to_numpy()
             elev_frontal = azim_90_data.sort_values('elev')['elev'].to_numpy()
         else:
-            # If no data at azim=90, use the closest azimuth
-            closest_azim = azimuth_angles[np.argmin(np.abs(np.array(azimuth_angles) - 90))]
-            azim_data = df[np.abs(df['azim'] - closest_azim) < 1]
-            spls_frontal = azim_data.sort_values('elev')[frequency].to_numpy()
-            elev_frontal = azim_data.sort_values('elev')['elev'].to_numpy()
+            # If no data at azim=90, create empty arrays
+            spls_frontal = np.array([])
+            elev_frontal = np.array([])
         
-        # Vista sagital: azim = 0 (or closest to 0)
-        azim_0_data = df[np.abs(df['azim'] - 0) < 1]  # Within 1 degree of 0
+        # Vista sagital: Get data at exactly azim = 0
+        azim_0_data = df[df['azim'] == 0]
         if not azim_0_data.empty:
             spls_sagital = azim_0_data.sort_values('elev')[frequency].to_numpy()
             elev_sagital = azim_0_data.sort_values('elev')['elev'].to_numpy()
         else:
-            # If no data at azim=0, use the closest azimuth
-            closest_azim = azimuth_angles[np.argmin(np.abs(np.array(azimuth_angles) - 0))]
-            azim_data = df[np.abs(df['azim'] - closest_azim) < 1]
-            spls_sagital = azim_data.sort_values('elev')[frequency].to_numpy()
-            elev_sagital = azim_data.sort_values('elev')['elev'].to_numpy()
+            # If no data at azim=0, create empty arrays
+            spls_sagital = np.array([])
+            elev_sagital = np.array([])
         
         # Update polar plots
         self.main_window.polar_canvases[0].update_plot(azim_superior, spls_superior)
