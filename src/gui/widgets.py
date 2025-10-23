@@ -180,7 +180,7 @@ class ControlPanel(QFrame):
         
         # Checkbox for using normalized data in 2D plots
         self.normalized_2d_plots_checkbox = QCheckBox("Usar datos normalizados\nen gráficos 2D")
-        self.normalized_2d_plots_checkbox.setChecked(False)  # Default unchecked
+        self.normalized_2d_plots_checkbox.setChecked(True)  # Default checked
         self.normalized_2d_plots_checkbox.setEnabled(False)
         self.normalized_2d_plots_checkbox.setStyleSheet("""
             QCheckBox {

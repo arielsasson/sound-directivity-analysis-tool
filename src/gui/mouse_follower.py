@@ -224,7 +224,7 @@ class MouseFollower(QObject):
             return
             
         # Allow clicks on mesh or cursor
-        if actor != self.mesh and actor != self.cursor:
+        if actor != self.mesh and actor != self.red_cursor:
             return
 
         # Snap to closest vertex

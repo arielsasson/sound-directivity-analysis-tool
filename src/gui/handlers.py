@@ -209,6 +209,7 @@ class EventHandlers:
         df_clean_canonical = apply_canonical_conversion(self.main_window.df_clean)
         df_norm_canonical = apply_canonical_conversion(self.main_window.df_norm)
         
+        
         # Create balloon plots using canonical data
         mesh_spl, line_azim1, line_elev1, *text_labels1 = create_balloon_plot(
             df_clean_canonical, frequency, False, distance_scale_factor
@@ -286,7 +287,9 @@ class EventHandlers:
         """Update polar plots with new data."""
         # Check if user wants to use normalized data for 2D plots
         use_normalized = self.main_window.control_panel.normalized_2d_plots_checkbox.isChecked()
-        df = self.main_window.df_norm if use_normalized else self.main_window.df_clean
+        # Use canonical conversion for 2D plots to get the same data as balloon plots
+        df_raw = self.main_window.df_norm if use_normalized else self.main_window.df_clean
+        df = apply_canonical_conversion(df_raw)
         
         # Vista superior: Get data at exactly elev = 0
         elev_0_data = df[df['elev'] == 0]
@@ -298,23 +301,57 @@ class EventHandlers:
             spls_superior = np.array([])
             azim_superior = np.array([])
         
-        # Vista frontal: Get data at exactly azim = 90
+        # Vista frontal: Get data from azim=90 (elevations -90° to 90°) and azim=270 (elevations 90° to 270°)
         azim_90_data = df[df['azim'] == 90]
+        azim_270_data = df[df['azim'] == 270]
+        
+        frontal_data = []
         if not azim_90_data.empty:
-            spls_frontal = azim_90_data.sort_values('elev')[frequency].to_numpy()
-            elev_frontal = azim_90_data.sort_values('elev')['elev'].to_numpy()
+            # Add data from azim=90 with original elevations (-90° to 90°)
+            for _, row in azim_90_data.iterrows():
+                frontal_data.append((row['elev'], row[frequency]))
+        
+        if not azim_270_data.empty:
+            # Add data from azim=270, but convert elevations to 90° to 270° range
+            for _, row in azim_270_data.iterrows():
+                # Convert elevation: if canonical elev is in [-90, 90], map it to [90, 270]
+                original_elev = row['elev']
+                if original_elev <= 90:  # This should be the case for canonical data
+                    converted_elev = 180 - original_elev  # Maps [-90, 90] to [270, 90] -> reverse to [90, 270]
+                    frontal_data.append((converted_elev, row[frequency]))
+        
+        if frontal_data:
+            frontal_data.sort(key=lambda x: x[0])  # Sort by elevation
+            elev_frontal = np.array([x[0] for x in frontal_data])
+            spls_frontal = np.array([x[1] for x in frontal_data])
         else:
-            # If no data at azim=90, create empty arrays
             spls_frontal = np.array([])
             elev_frontal = np.array([])
         
-        # Vista sagital: Get data at exactly azim = 0
+        # Vista sagital: Get data from azim=0 (elevations -90° to 90°) and azim=180 (elevations 90° to 270°)
         azim_0_data = df[df['azim'] == 0]
+        azim_180_data = df[df['azim'] == 180]
+        
+        sagital_data = []
         if not azim_0_data.empty:
-            spls_sagital = azim_0_data.sort_values('elev')[frequency].to_numpy()
-            elev_sagital = azim_0_data.sort_values('elev')['elev'].to_numpy()
+            # Add data from azim=0 with original elevations (-90° to 90°)
+            for _, row in azim_0_data.iterrows():
+                sagital_data.append((row['elev'], row[frequency]))
+        
+        if not azim_180_data.empty:
+            # Add data from azim=180, but convert elevations to 90° to 270° range
+            for _, row in azim_180_data.iterrows():
+                # Convert elevation: if canonical elev is in [-90, 90], map it to [90, 270]
+                original_elev = row['elev']
+                if original_elev <= 90:  # This should be the case for canonical data
+                    converted_elev = 180 - original_elev  # Maps [-90, 90] to [270, 90] -> reverse to [90, 270]
+                    sagital_data.append((converted_elev, row[frequency]))
+        
+        if sagital_data:
+            sagital_data.sort(key=lambda x: x[0])  # Sort by elevation
+            elev_sagital = np.array([x[0] for x in sagital_data])
+            spls_sagital = np.array([x[1] for x in sagital_data])
         else:
-            # If no data at azim=0, create empty arrays
             spls_sagital = np.array([])
             elev_sagital = np.array([])
         
