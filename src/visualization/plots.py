@@ -41,7 +41,7 @@ def spherical_to_cartesian(azim_deg: np.ndarray, elev_deg: np.ndarray, r: float 
     return np.vstack((x, y, z)).T
 
 
-def create_surface_mesh(df: pd.DataFrame, spl_column: str) -> Mesh:
+def create_surface_mesh(df: pd.DataFrame, spl_column: str, normalized: bool = False) -> Mesh:
     """
     Create a 3D surface mesh from directivity data.
     
@@ -54,9 +54,21 @@ def create_surface_mesh(df: pd.DataFrame, spl_column: str) -> Mesh:
     """
     df['az'] = np.radians(-df['azim'])
     df['el'] = np.radians(df['elev'])
-    df['x'] = df[spl_column] * np.cos(df['el']) * np.cos(df['az'])
-    df['y'] = df[spl_column] * np.cos(df['el']) * np.sin(df['az'])
-    df['z'] = df[spl_column] * np.sin(df['el'])
+    
+    # For normalized data with negative values, invert the distance so 0 dB is farthest and most negative is closest
+    spl_values = df[spl_column].copy()
+    if normalized:
+        # For normalized data: 0 dB should be farthest, negative values closer to center
+        # We need to invert the relationship: use current_value - min as distance
+        # This way: 0 dB (max) gets max distance, most negative gets 0 distance
+        min_spl = spl_values.min()  # This should be the most negative value
+        distance_values = spl_values - min_spl
+    else:
+        distance_values = spl_values
+    
+    df['x'] = distance_values * np.cos(df['el']) * np.cos(df['az'])
+    df['y'] = distance_values * np.cos(df['el']) * np.sin(df['az'])
+    df['z'] = distance_values * np.sin(df['el'])
     
     # Sort by elevation and azimuth (assuming grid-like order)
     df_sorted = df.sort_values(by=['elev', 'azim'])
@@ -92,7 +104,18 @@ def create_surface_mesh(df: pd.DataFrame, spl_column: str) -> Mesh:
             
     faces = np.array(faces)
     
-    return Mesh([flat_points, faces]).lw(0).c(BALLOON_PLOT_COLOR)
+    # Create mesh with original SPL values for coloring
+    mesh = Mesh([flat_points, faces]).lw(0)
+    
+    # Add original SPL values as point data for coloring
+    spl_grid = df_sorted[spl_column].values.reshape((n_el, n_az))
+    flat_spl = spl_grid.reshape(-1)
+    mesh.pointdata["spl"] = flat_spl
+    
+    # Apply colormap based on SPL values
+    mesh.cmap("viridis", flat_spl)
+    
+    return mesh
 
 
 def create_reference_lines(max_distance: float) -> tuple:
@@ -151,16 +174,12 @@ def create_balloon_plot(df: pd.DataFrame, frequency: str, normalized: bool = Fal
     max_spl = max(spls)
     
     # Create surface mesh
-    mesh = create_surface_mesh(df, frequency)
+    mesh = create_surface_mesh(df, frequency, normalized)
     
     # Create reference lines and labels
     azimuth_line, elevation_line, text_labels = create_reference_lines(max_spl)
     
-    # Apply colormap based on distance from center
-    center = np.array([0, 0, 0])
-    distances = np.linalg.norm(mesh.points - center, axis=1)
-    mesh.pointdata["distances"] = distances
-    mesh.cmap("viridis", distances)
+    # Colormap is now applied in create_surface_mesh function
     
     # Add scalar bar
     if normalized:

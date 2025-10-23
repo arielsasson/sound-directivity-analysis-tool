@@ -111,8 +111,27 @@ class ControlPanel(QFrame):
         self.std_label.setStyleSheet("color: gray;")
         layout.addWidget(self.std_label)
         
+        # Mouse interaction display section (simplified - main info now in plot headers)
+        self.create_mouse_display_section(layout)
+        
         # Stretch to push widgets to top
         layout.addStretch()
+    
+    def create_mouse_display_section(self, layout):
+        """Create mouse interaction display section."""
+        # Mouse interaction group
+        mouse_group = QGroupBox("Interacción con gráficos")
+        mouse_layout = QVBoxLayout(mouse_group)
+        
+        # Instructions
+        instructions = QLabel("Instrucciones:\n• Mover mouse: seguir cursor\n• Click izquierdo: fijar punto\n• Click derecho: borrar punto\n• Información del cursor se muestra en los títulos de los gráficos")
+        instructions.setStyleSheet("color: gray; font-size: 9px;")
+        instructions.setWordWrap(True)
+        mouse_layout.addWidget(instructions)
+        
+        layout.addWidget(mouse_group)
+    
+    # Mouse interaction methods removed - information now displayed in plot headers
     
     def create_angle_group(self, title: str, prefix: str) -> QGroupBox:
         """Create angle input group."""
@@ -192,19 +211,26 @@ class GraphContainer(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Title label
-        label = QLabel(title)
-        label.setStyleSheet(f"background-color: {color}; padding: 4px;")
-        label.setFixedHeight(25)
-        label.setAlignment(Qt.AlignCenter)
+        # Title label - store reference for dynamic updates
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet(f"background-color: {color}; padding: 4px; font-weight: bold;")
+        self.title_label.setFixedHeight(25)
+        self.title_label.setAlignment(Qt.AlignCenter)
         
         # Canvas frame
         self.canvas_frame = QFrame()
         self.canvas_frame.setFixedSize(width, height - 25)
         self.canvas_frame.setStyleSheet("background-color: white; border: 1px solid gray;")
         
-        layout.addWidget(label)
+        layout.addWidget(self.title_label)
         layout.addWidget(self.canvas_frame)
+    
+    def update_title(self, base_title: str, cursor_info: str = ""):
+        """Update the title with optional cursor information."""
+        if cursor_info:
+            self.title_label.setText(f"{base_title} | {cursor_info}")
+        else:
+            self.title_label.setText(base_title)
 
 
 class VTKWidget(QVTKRenderWindowInteractor):

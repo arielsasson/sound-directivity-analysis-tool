@@ -121,9 +121,9 @@ class MainWindow(QMainWindow):
         norm_layout.setContentsMargins(0, 0, 0, 0)
         norm_layout.addWidget(self.vtk_widget_norm)
         
-        # Create plotters
-        self.plotter_spl = Plotter(qt_widget=self.vtk_widget_spl, offscreen=True)
-        self.plotter_norm = Plotter(qt_widget=self.vtk_widget_norm, offscreen=True)
+        # Create plotters - use offscreen=False for proper callbacks
+        self.plotter_spl = Plotter(qt_widget=self.vtk_widget_spl, offscreen=False, interactive=True)
+        self.plotter_norm = Plotter(qt_widget=self.vtk_widget_norm, offscreen=False, interactive=True)
     
     def setup_polar_plots(self):
         """Setup polar plot widgets."""

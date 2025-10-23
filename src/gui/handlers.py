@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from utils.data_generation import generate_balloon_data
 from data.processing import energy_std_spl, redundancy_average_spl, normalize_by_90deg
 from visualization.plots import create_balloon_plot, create_polar_plot
+from .mouse_follower import MouseFollower
 from config import (
     ELEVATION_RANGE, AZIMUTH_RANGE, MIN_ELEVATION_STEP, MAX_ELEVATION_STEP,
     MIN_AZIMUTH_STEP, MAX_AZIMUTH_STEP, REQUIRED_ELEVATION_REFERENCE,
@@ -29,6 +30,8 @@ class EventHandlers:
     
     def __init__(self, main_window: 'MainWindow'):
         self.main_window = main_window
+        self.spl_mouse_follower = None
+        self.norm_mouse_follower = None
     
     def validate_angles(self) -> bool:
         """Validate angle input parameters."""
@@ -168,14 +171,26 @@ class EventHandlers:
         std_db = energy_std_spl(spls_at_90.values)
         self.main_window.control_panel.std_label.setText(f"Desvío estándar en la posición de referencia (90°): {std_db:.2f} dB")
         
-        # Save reference data before modification
-        df_90 = self.main_window.df[self.main_window.df["elev"] == REQUIRED_ELEVATION_REFERENCE].copy()
-        
         # Average redundant measurements
         self.main_window.df_clean = redundancy_average_spl(self.main_window.df)
         
-        # Normalize data
-        self.main_window.df_norm = normalize_by_90deg(self.main_window.df_clean, df_90)
+        # Save reference data from averaged data
+        df_90 = self.main_window.df_clean[self.main_window.df_clean["elev"] == REQUIRED_ELEVATION_REFERENCE].copy()
+        
+        # Step 1: Normalize data using 90-degree reference
+        df_norm_temp = normalize_by_90deg(self.main_window.df_clean, df_90)
+        
+        # Step 2: Apply additional normalization - make highest value 0 dB
+        spl_cols = [col for col in df_norm_temp.columns if col not in ["azim", "elev"]]
+        max_values = {}
+        for col in spl_cols:
+            max_values[col] = df_norm_temp[col].max()
+        
+        # Make highest value 0 dB by subtracting max from each value
+        for col in spl_cols:
+            df_norm_temp[col] = df_norm_temp[col] - max_values[col]
+        
+        self.main_window.df_norm = df_norm_temp
     
     def plot_data(self, frequency: str):
         """Plot all visualizations for the given frequency."""
@@ -199,12 +214,13 @@ class EventHandlers:
     
     def update_vtk_plotter(self, plotter, mesh, azimuth_line, elevation_line, text_labels, frequency):
         """Update VTK plotter with new data."""
+        # Remove old elements but keep callbacks
         plotter.clear()
         plotter.reset_camera()
         plotter.renderer.ResetCamera()
         plotter.renderer.ResetCameraClippingRange()
-        plotter.render()
         
+        # Use show() function to properly set up interactive mode
         plotter.show(
             mesh, azimuth_line, elevation_line, *text_labels,
             interactive=True,
@@ -212,9 +228,49 @@ class EventHandlers:
             title=frequency,
             axes=0,
             size=(600, 600),
-            mode=8,
+            mode=8,  # Terrain mode
             resetcam=True
         )
+        
+        # Create or update MouseFollower AFTER show() call
+        if plotter == self.main_window.plotter_spl:
+            print("Creating/updating SPL MouseFollower")
+            # SPL plot
+            if self.spl_mouse_follower:
+                print("Updating existing SPL MouseFollower")
+                # Update existing follower with new data and mesh
+                self.spl_mouse_follower.update_data(self.main_window.df_clean, frequency)
+                self.spl_mouse_follower.mesh = mesh
+                # Reconnect callbacks after show() call
+                self.spl_mouse_follower._reconnect_callbacks()
+            else:
+                print("Creating new SPL MouseFollower")
+                # Create new follower
+                self.spl_mouse_follower = MouseFollower(
+                    plotter, mesh, self.main_window.df_clean, frequency, "SPL"
+                )
+                self.spl_mouse_follower.values_updated.connect(self.update_mouse_values)
+                self.spl_mouse_follower.cursor_info_updated.connect(
+                    lambda info: self.main_window.top_left.update_title("SPL", info)
+                )
+        
+        elif plotter == self.main_window.plotter_norm:
+            # Normalized plot
+            if self.norm_mouse_follower:
+                # Update existing follower with new data and mesh
+                self.norm_mouse_follower.update_data(self.main_window.df_norm, frequency)
+                self.norm_mouse_follower.mesh = mesh
+                # Reconnect callbacks after show() call
+                self.norm_mouse_follower._reconnect_callbacks()
+            else:
+                # Create new follower
+                self.norm_mouse_follower = MouseFollower(
+                    plotter, mesh, self.main_window.df_norm, frequency, "normalized"
+                )
+                self.norm_mouse_follower.values_updated.connect(self.update_mouse_values)
+                self.norm_mouse_follower.cursor_info_updated.connect(
+                    lambda info: self.main_window.top_right.update_title("Normalizado", info)
+                )
     
     def update_polar_plots(self, frequency: str):
         """Update polar plots with new data."""
@@ -230,3 +286,8 @@ class EventHandlers:
         self.main_window.polar_canvases[0].update_plot(azimuth_angles, spls_superior)
         self.main_window.polar_canvases[1].update_plot(elevation_angles, spls_frontal)
         self.main_window.polar_canvases[2].update_plot(elevation_angles, spls_sagital)
+    
+    def update_mouse_values(self, azim, elev, spl, azim_diff, spl_diff):
+        """Update mouse interaction values - information now displayed in plot headers."""
+        # Mouse interaction values are now displayed in plot headers via cursor_info_updated signal
+        pass
